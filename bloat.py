@@ -38,7 +38,9 @@ def symbol_type_to_human(type):
     return {
         'b': 'bss',
         'd': 'data',
+        'g': 'small data',
         'r': 'read-only data',
+        's': 'uninitialized small data',
         't': 'code',
         'u': 'weak symbol', # Unique global.
         'w': 'weak symbol',
@@ -67,25 +69,25 @@ def parse_nm(input):
         line = line.rstrip()
         match = sym_re.match(line)
         if match:
-            size, type, sym = match.groups()[0:3]
+            size, symType, sym = match.groups()[0:3]
             size = int(size, 16)
-            type = type.lower()
-            if type in ['u', 'v']:
-                type = 'w'  # just call them all weak
-            if type == 'b':
+            symType = symType.lower()
+            if symType in ['u', 'v']:
+                symType = 'w'  # just call them all weak
+            if symType == 'b':
                 continue  # skip all BSS for now
             path = match.group(4)
-            yield sym, type, size, path
+            yield sym, symType, size, path
             continue
         match = addr_re.match(line)
         if match:
-            type, sym = match.groups()[0:2]
+            symType, sym = match.groups()[0:2]
             # No size == we don't care.
             continue
         match = noaddr_re.match(line)
         if match:
-            type, sym = match.groups()
-            if type in ('U', 'w'):
+            symType, sym = match.groups()
+            if symType in ('U', 'w'):
                 # external or weak symbol
                 continue
 
@@ -161,8 +163,9 @@ def parse_cpp_name(name, cppfilt):
 
     def parse_one(val):
         """Returns (leftmost-part, remaining)."""
-        if (val.startswith('operator') and
-            not (val[8].isalnum() or val[8] == '_')):
+        op = val.find('operator')
+        if (not op == -1 and
+            not (val[op+8].isalnum() or val[op+8] == '_')):
             # Operator overload function, terminate.
             return (val, '')
         co = val.find('::')
@@ -204,7 +207,7 @@ def parse_cpp_name(name, cppfilt):
 
 def treeify_syms(symbols, strip_prefix=None, cppfilt=None):
     dirs = {}
-    for sym, type, size, path in symbols:
+    for sym, symType, size, path in symbols:
         if path:
             path = os.path.normpath(path)
             if strip_prefix and path.startswith(strip_prefix):
@@ -243,14 +246,14 @@ def treeify_syms(symbols, strip_prefix=None, cppfilt=None):
                 assert part != '', path
                 if part not in tree:
                     tree[part] = {'$bloat_symbols':{}}
-                if type not in tree[part]['$bloat_symbols']:
-                    tree[part]['$bloat_symbols'][type] = 0
-                tree[part]['$bloat_symbols'][type] += 1
+                if symType not in tree[part]['$bloat_symbols']:
+                    tree[part]['$bloat_symbols'][symType] = 0
+                tree[part]['$bloat_symbols'][symType] += 1
                 tree = tree[part]
             old_size, old_symbols = tree.get(key, (0, {}))
-            if type not in old_symbols:
-                old_symbols[type] = 0
-            old_symbols[type] += 1
+            if symType not in old_symbols:
+                old_symbols[symType] = 0
+            old_symbols[symType] += 1
             tree[key] = (old_size + size, old_symbols)
         except:
             print >>sys.stderr, 'sym `%s`\tparts `%s`\tkey `%s`' % (sym, parts, key)
@@ -399,11 +402,11 @@ if mode == 'syms':
         res = subprocess.check_output([opts.cppfilt, 'main'])
         if res.strip() != 'main':
             print >>sys.stderr, ("%s failed demangling, "
-                                 "output won't be demangled." % opt.cppfilt)
+                                 "output won't be demangled." % opts.cppfilt)
             opts.cppfilt = None
     except:
         print >>sys.stderr, ("Could not find c++filt at %s, "
-                             "output won't be demangled." % opt.cppfilt)
+                             "output won't be demangled." % opts.cppfilt)
         opts.cppfilt = None
     dump_nm(nmfile, strip_prefix=opts.strip_prefix, cppfilt=opts.cppfilt)
 elif mode == 'sections':
